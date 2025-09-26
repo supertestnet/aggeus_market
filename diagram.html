@@ -1,0 +1,320 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aggeus Market Protocol</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        
+        .phase {
+            margin: 40px 0;
+            padding: 25px;
+            border-radius: 12px;
+            border-left: 5px solid;
+        }
+        
+        .phase-1 { 
+            background: #e8f5e8; 
+            border-color: #27ae60;
+        }
+        .phase-2 { 
+            background: #e3f2fd; 
+            border-color: #2196f3;
+        }
+        .phase-3 { 
+            background: #fff3e0; 
+            border-color: #ff9800;
+        }
+        .phase-4 { 
+            background: #fce4ec; 
+            border-color: #e91e63;
+        }
+        
+        .phase h2 {
+            margin-top: 0;
+            color: #2c3e50;
+            font-size: 1.8em;
+        }
+        
+        .actors {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            margin: 30px 0;
+            gap: 20px;
+        }
+        
+        .actor {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+            text-align: center;
+            min-width: 180px;
+            border: 3px solid;
+        }
+        
+        .kelly { border-color: #27ae60; }
+        .coordinator { border-color: #3498db; }
+        .john { border-color: #e74c3c; }
+        .tommy { border-color: #f39c12; }
+        .oracle { border-color: #9b59b6; }
+        
+        .actor h3 {
+            margin-top: 0;
+            font-size: 1.3em;
+        }
+        
+        .flow-arrow {
+            text-align: center;
+            font-size: 2em;
+            color: #7f8c8d;
+            margin: 20px 0;
+        }
+        
+        .contract-box {
+            background: #f8f9fa;
+            border: 2px dashed #6c757d;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+        }
+        
+        .money-flow {
+            background: #fffbf0;
+            border: 2px solid #ffc107;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        
+        .outcome-box {
+            display: flex;
+            justify-content: space-between;
+            margin: 20px 0;
+            gap: 15px;
+        }
+        
+        .outcome {
+            flex: 1;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .outcome-y {
+            background: #d4edda;
+            border: 2px solid #28a745;
+        }
+        
+        .outcome-n {
+            background: #f8d7da;
+            border: 2px solid #dc3545;
+        }
+        
+        .legend {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 30px;
+        }
+        
+        .legend h3 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Aggeus Market Protocol Flow</h1>
+        
+        <div class="actors">
+            <div class="actor kelly">
+                <h3>👩‍💼 Kelly</h3>
+                <p><strong>Market Maker</strong></p>
+                <p>70% confident in Y<br>Stakes 10k sats</p>
+            </div>
+            <div class="actor coordinator">
+                <h3>🤝 Coordinator</h3>
+                <p><strong>Non-custodial Proxy</strong></p>
+                <p>Facilitates trades<br>Never holds custody</p>
+            </div>
+            <div class="actor john">
+                <h3>👨‍💻 John</h3>
+                <p><strong>First Buyer</strong></p>
+                <p>Buys Kelly's position<br>Pays 3k sats</p>
+            </div>
+            <div class="actor tommy">
+                <h3>🎯 Tommy</h3>
+                <p><strong>Second Buyer</strong></p>
+                <p>Buys John's position<br>Pays 4k sats</p>
+            </div>
+            <div class="actor oracle">
+                <h3>🔮 Oracle</h3>
+                <p><strong>Truth Source</strong></p>
+                <p>Reveals Y or N<br>when event resolves</p>
+            </div>
+        </div>
+
+        <div class="phase phase-1">
+            <h2>Phase 1: Market Making</h2>
+            <p><strong>Kelly creates offer:</strong> 70% confident in outcome Y, willing to bet 10k sats</p>
+            
+            <div class="contract-box">
+                <strong>Kelly's Initial Contract:</strong><br>
+                • Deposits 10k sats into smart contract<br>
+                • Signs transaction allowing coordinator to change state<br>
+                • Goes offline - can return later to check results
+            </div>
+            
+            <div class="money-flow">
+                Kelly → Smart Contract: 10,000 sats
+            </div>
+        </div>
+
+        <div class="flow-arrow">↓</div>
+
+        <div class="phase phase-2">
+            <h2>Phase 2: First Trade (John Buys)</h2>
+            <p><strong>John wants to take the opposite side of Kelly's bet</strong></p>
+            
+            <div class="contract-box">
+                <strong>Coordinator Action:</strong><br>
+                1. Uses Kelly's pre-signed transaction<br>
+                2. Sends Kelly 3k sats immediately<br>
+                3. Moves Kelly's 10k to second contract state<br>
+                4. Creates mirror contract with John
+            </div>
+            
+            <div class="money-flow">
+                Coordinator → Kelly: 3,000 sats (immediate payout)<br>
+                John → Coordinator: 3,000 sats (via Lightning + preimage)
+            </div>
+            
+            <p><strong>Contract States After Trade:</strong></p>
+            <div style="display: flex; gap: 15px;">
+                <div class="contract-box" style="flex: 1;">
+                    <strong>Kelly's Contract:</strong><br>
+                    If Y revealed → Kelly gets 10k<br>
+                    If N revealed → Coordinator gets 10k
+                </div>
+                <div class="contract-box" style="flex: 1;">
+                    <strong>John's Contract:</strong><br>
+                    If Y revealed → Coordinator gets 10k<br>
+                    If N revealed → John gets 10k
+                </div>
+            </div>
+        </div>
+
+        <div class="flow-arrow">↓</div>
+
+        <div class="phase phase-3">
+            <h2>Phase 3: Position Transfer (Tommy Buys from John)</h2>
+            <p><strong>John wants to sell his position for 4k sats</strong></p>
+            
+            <div class="contract-box">
+                <strong>John's Sale Setup:</strong><br>
+                • John signs transaction: "Pay me 4k, coordinator keeps 6k"<br>
+                • Coordinator finds Tommy who wants this position<br>
+                • Creates new contract with Tommy (same terms as John's)
+            </div>
+            
+            <div class="money-flow">
+                Tommy → Coordinator: 4,000 sats (via Lightning + preimage)<br>
+                Coordinator → John: 4,000 sats (executes John's pre-signed tx)
+            </div>
+            
+            <p><strong>John's Profit:</strong> Bought for 3k, sold for 4k = +1k sats profit!</p>
+        </div>
+
+        <div class="flow-arrow">↓</div>
+
+        <div class="phase phase-4">
+            <h2>Phase 4: Market Resolution</h2>
+            <p><strong>Oracle reveals the outcome</strong></p>
+            
+            <div class="outcome-box">
+                <div class="outcome outcome-y">
+                    <h4>If Y is Revealed (Kelly was right)</h4>
+                    <p><strong>Kelly:</strong> Keeps 3k + gets 10k = 13k total<br>
+                    <em>Profit: +3k (30% gain)</em></p>
+                    <p><strong>Tommy:</strong> Loses his 4k stake<br>
+                    <em>Loss: -4k sats</em></p>
+                    <p><strong>Coordinator:</strong> Breaks even (proxy only)</p>
+                </div>
+                <div class="outcome outcome-n">
+                    <h4>If N is Revealed (Kelly was wrong)</h4>
+                    <p><strong>Kelly:</strong> Keeps only 3k sats<br>
+                    <em>Loss: -7k (70% loss)</em></p>
+                    <p><strong>Tommy:</strong> Gets 10k for his 4k stake<br>
+                    <em>Profit: +6k sats</em></p>
+                    <p><strong>Coordinator:</strong> Breaks even (proxy only)</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="legend">
+            <h3>Key Innovations</h3>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #27ae60;"></div>
+                <span><strong>Non-interactive Trading:</strong> Users can go offline after creating/buying positions</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #3498db;"></div>
+                <span><strong>Non-custodial Proxy:</strong> Coordinator never holds user funds directly</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #e74c3c;"></div>
+                <span><strong>Position Trading:</strong> Users can sell positions before market resolves</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #f39c12;"></div>
+                <span><strong>Bitcoin Native:</strong> All contracts run on Bitcoin using smart contracts</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #9b59b6;"></div>
+                <span><strong>Oracle Integration:</strong> Uses DLC-style oracles for event resolution</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
