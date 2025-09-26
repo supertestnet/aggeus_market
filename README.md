@@ -9,7 +9,7 @@ Aggeus is an open protocol for building permissionless prediction markets on bit
 
 There are three explainers:
 
-- [Protocol description](https://gist.github.com/supertestnet/be601c4fc50d0f1d9a5c7079cf3363df) - some say this one is confusing
+- [Protocol description](https://gist.github.com/supertestnet/be601c4fc50d0f1d9a5c7079cf3363df) - some say this one is confusing, I wrote it to help me implement it
 - [Explainer](https://gist.github.com/supertestnet/7456c01f0333581794eb153f990a153d) - this one is longer but has more examples, and I think it's easier to understand
 - [Diagram](https://supertestnet.github.io/aggeus_market/diagram.html) - I think it's helpful to have this open while reviewing the Explainer document
 
