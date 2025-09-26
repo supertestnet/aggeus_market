@@ -17,5 +17,5 @@ There are three explainers:
 
 The main tradeoffs are:
 1. the Oracle Problem -- oracles can do shenanigans like become an active participant in the market and only announce results where they win, or they can shut down without warning, leaving users stuck with no way to unilaterally recover their funds
-2. the Liveness problem -- the coordinator cosigns every trade, so if he shuts down or has a temporary internet outage, all trading halts til he returns (though even if he disappears permanently, users can still exit from their positions if the oracle still announces a result)
+2. the Liveness Problem -- the coordinator cosigns every trade, so if he shuts down or has a temporary internet outage, all trading halts til he returns (though even if he disappears permanently, users can still exit from their positions if the oracle still announces a result)
 3. the Free Option Problem -- if the coordinator decides to become an active participant in the market, he can do shenanigans like hold someone's trade offer in a pending state til he learns more about where the market seems headed, then accept or decline their offer with the knowledge he gained in the interim
