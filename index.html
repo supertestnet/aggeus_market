@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, user-scalable=no">
+        <title>Aggeus Market</title>
+        <script src="https://bundle.run/buffer@6.0.3"></script>
+        <script>var Buffer = buffer.Buffer;</script>
+        <script src="https://supertestnet.github.io/bolt11_browser/bolt11.js"></script>
+        <script src="https://supertestnet.github.io/bankify/super_nostr.js"></script>
+        <script src="https://supertestnet.github.io/nwcjs/nwcjs.js"></script>
+        <script src="https://unpkg.com/@cmdcode/tapscript@1.5.3"></script>
+        <script src="https://bundle.run/noble-secp256k1@1.2.14"></script>
+        <script src="https://bundle.run/bech32@2.0.0"></script>
+        <script>
+            var aggeus_market = {
+                coordinators_state: {utxos: {}, contracts: {}, nwc_info: null},
+                users_state: {offers_seen: {}, users_shares: {}},
+                network: "testnet",
+                nums_point: "a".repeat( 64 ),
+                relays: [ "wss://nostr.bitcoiner.social" ],
+                hexToBytes: hex => Uint8Array.from( hex.match( /.{1,2}/g ).map( byte => parseInt( byte, 16 ) ) ),
+                bytesToHex: bytes => bytes.reduce( ( str, byte ) => str + byte.toString( 16 ).padStart( 2, "0" ), "" ),
+                getPrivkey: () => aggeus_market.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() ),
+                getPubkey: privkey => nobleSecp256k1.getPublicKey( privkey, true ).substring( 2 ),
+                sha256: async s => {
+                    if ( typeof s == "string" ) s = new TextEncoder().encode( s );
+                    var arr = await crypto.subtle.digest( 'SHA-256', s );
+                    return aggeus_market.bytesToHex( new Uint8Array( arr ) );
+                },
+                getAddressData: ( scripts, index ) => {
+                    var tree = scripts.map( s => tapscript.Tap.encodeScript( s ) );
+                    var [ tpubkey, cblock ] = tapscript.Tap.getPubKey( aggeus_market.nums_point, { tree, target: tree[ index ] });
+                    var address = tapscript.Address.p2tr.fromPubKey( tpubkey, aggeus_market.network );
+                    return [ address, tree, cblock ];
+                },
+                makeMarket: async ( market_name, resolution_blockheight, coordinator ) => {
+                    var privkey = aggeus_market.getPrivkey();
+                    var pubkey = aggeus_market.getPubkey( privkey );
+                    var market_id = aggeus_market.getPrivkey();
+                    var yes_preimage = aggeus_market.getPrivkey();
+                    var no_preimage = aggeus_market.getPrivkey();
+                    var yes_hash = await aggeus_market.sha256( aggeus_market.hexToBytes( yes_preimage ) );
+                    var no_hash = await aggeus_market.sha256( aggeus_market.hexToBytes( no_preimage ) );
+                    var relays = aggeus_market.relays;
+                    var msg_data = [
+                        0,
+                        market_name,
+                        market_id,
+                        pubkey,
+                        coordinator,
+                        resolution_blockheight,
+                        yes_hash,
+                        no_hash,
+                        relays,
+                    ];
+                    var msg_hash = await aggeus_market.sha256( JSON.stringify( msg_data ) );
+                    var sig = await nobleSecp256k1.schnorr.sign( msg_hash, privkey );
+                    return { msg_data, sig, privkey, yes_preimage, no_preimage }
+                },
+                getInvoicePmthash: invoice => {
+                    var decoded = bolt11.decode( invoice );
+                    var i; for ( i=0; i<decoded[ "tags" ].length; i++ ) {
+                        if ( decoded[ "tags" ][ i ][ "tagName" ] === "payment_hash" ) return decoded[ "tags" ][ i ][ "data" ].toString();
+                    }
+                },
+            }
+        </script>
+        <style>
+            * {
+                box-sizing: border-box;
+                font-size: 1.15rem;
+                font-family: Arial, sans-serif;
+            }
+            html {
+                max-width: 800px;
+                padding: 3rem 1rem;
+                margin: auto;
+                line-height: 1.25;
+                padding: 0;
+            }
+            body {
+                margin: 3rem 1rem;
+                word-wrap: break-word;
+            }
+            h1 {
+                font-size: 2rem;
+            }
+            h2 {
+                font-size: 1.5rem;
+            }
+            input {
+                line-height: 1.25;
+                width: 100%;
+                height: 1.8rem;
+                font-size: 1.15rem;
+                border: 1px solid grey;
+            }
+            .hidden {
+                display: none !important;
+            }
+            .bold {
+                font-weight: bold;
+            }
+            .resolution_div {
+                padding: 1rem;
+                border: 2px dashed black;
+                border-radius: 1rem;
+                text-align: center;
+            }
+            input[type="radio"] {
+                width: .8rem;
+                vertical-align: middle;
+                margin-bottom: .3rem;
+            }
+            .market_page_offer, .shares_page_offer {
+                padding: 1rem;
+                border-radius: 1rem;
+                border: 1px solid black;
+                text-align: center;
+            }
+            .offer_label {
+                margin-top: 0.5rem;
+            }
+            @media screen and (max-width: 600px) {
+            }
+        </style>
+        <script>
+            var $ = document.querySelector.bind( document );
+            var $$ = document.querySelectorAll.bind( document );
+            var url_params = new URLSearchParams( window.location.search );
+            var url_keys = url_params.keys();
+            var $_GET = {}
+            for ( var key of url_keys ) $_GET[ key ] = url_params.get( key );
+            var hash_arr = window.location.href.substring( window.location.href.indexOf( "#" ) ).split( "#" );
+            hash_arr.splice( 0, 1 );
+            var params = {}
+            hash_arr.forEach( item => {
+                var vals = item.split( "=" );
+                params[ vals[ 0 ] ] = vals[ 1 ];
+            });
+        </script>
+    </head>
+    <body>
+        <div class="home_page">
+            <h1>Welcome to Aggeus Market</h1>
+            <p>Aggeus Market is a prediction market based on bitcoin and the lightning network. Play with it!</p>
+            <p class="bold">What do you want to do?</p>
+            <p><button class="be_an_oracle">Be an oracle</button></p>
+            <p><button class="be_a_coordinator">Be a coordinator</button></p>
+            <p><button class="view_a_market">View a market</button></p>
+            <p><button class="view_your_shares">View your shares</button></p>
+        </div>
+        <div class="oracles_page hidden">
+            <h1>Oracle page</h1>
+            <p>Enter the name of your market as a Yes or No question</p>
+            <p><input class="market_name_form" placeholder="Will Reginald win in the Reginald vs Dave election?"></p>
+            <p>Enter the blockheight when you expect to resolve it</p>
+            <p><input class="resolution_blockheight_form" type="number" min="0" step="1" value="10"></p>
+            <p>Pick a coordinator for this market and enter their coordinator id</p>
+            <p><input class="oracle_picks_coordinator"></p>
+            <p><button class="make_market">Submit</button></p>
+        </div>
+        <div class="resolution_page hidden">
+            <h1>Resolution page</h1>
+            <div class="resolution_data"></div>
+        </div>
+        <div class="coordinators_page hidden">
+            <h1>Coordinator page</h1>
+            <div class="coordinators_details hidden">
+                <p class="bold">Coordinator ID</p>
+                <p class="coordinators_pubkey"></p>
+                <p class="bold">Your private key</p>
+                <p class="coordinators_privkey"></p>
+                <p><button class="help_with_offer">Help with offer</button></p>
+            </div>
+            <p class="bold enter_nwc_string_label">Enter NWC string (receive only)</p>
+            <p><input class="coordinators_nwc_string" value="nostr+walletconnect://ba80990666ef0b6f4ba5059347beb13242921e54669e680064ca755256a1e3a6?relay=wss%3A%2F%2Frelay.coinos.io&secret=acc0c285a6ea909eec3890316761bffaa6ba61a318da15bf5c0a1809d303ad14&lud16=supertestnet@coinos.io"></p>
+            <p><button class="submit_nwc_string">Submit NWC string</button></p>
+        </div>
+        <div class="market_page hidden">
+            <h1>Market page</h1>
+            <div class="market_page_form">
+                <p class="bold">Enter the shareable data from an oracle</p> 
+                <p><input class="shareable_data_from_oracle"></p>
+                <p><button class="submit_shareable_data">Submit shareable data</button></p>
+            </div>
+            <div class="market_data"></div>
+        </div>
+        <div class="make_offer_page hidden">
+            <h1>Make Offer</h1>
+            <div class="offer_details"></div>
+            <p><button class="submit_offer">Submit offer</button></p>
+        </div>
+        <div class="shares_page hidden">
+            <h1>Your Shares</h1>
+            <div class="submit_backup_file_form">
+                <p>Submit your backup file</p>
+                <p><input class="backup_file_form"></p>
+                <p><button class="submit_backup_file">Submit</button></p>
+            </div>
+            <div class="loading_offers hidden">Loading...</div>
+            <div class="users_shares"></div>
+        </div>
+        <script>
+            var showPage = page => {
+                $( '.home_page' ).classList.add( "hidden" );
+                $( '.oracles_page' ).classList.add( "hidden" );
+                $( '.resolution_page' ).classList.add( "hidden" );
+                $( '.coordinators_page' ).classList.add( "hidden" );
+                $( '.market_page' ).classList.add( "hidden" );
+                $( '.make_offer_page' ).classList.add( "hidden" );
+                $( '.shares_page' ).classList.add( "hidden" );
+                $( `.${page}` ).classList.remove( "hidden" );
+            }
+            $( '.market_name_form' ).value = "";
+            $( '.oracle_picks_coordinator' ).value = "";
+            $( '.be_an_oracle' ).onclick = () => {showPage( 'oracles_page' );}
+            $( '.be_a_coordinator' ).onclick = () => {
+                var coordinators_privkey = aggeus_market.getPrivkey();
+                var coordinators_pubkey = aggeus_market.getPubkey( coordinators_privkey );
+                $( '.coordinators_pubkey' ).innerText = coordinators_pubkey;
+                $( '.coordinators_privkey' ).innerText = coordinators_privkey;
+                showPage( 'coordinators_page' );
+            }
+            $( '.shareable_data_from_oracle' ).value = "";
+            $( '.view_a_market' ).onclick = () => {showPage( 'market_page' );}
+            $( '.make_market' ).onclick = async () => {
+                var market_name = $( '.market_name_form' ).value;
+                var resolution_blockheight = Number( $( '.resolution_blockheight_form' ).value );
+                var coordinator = $( '.oracle_picks_coordinator' ).value;
+                var market_data = await aggeus_market.makeMarket( market_name, resolution_blockheight, coordinator );
+                $( '.resolution_data' ).innerHTML = `
+                    <p class="bold">Market name</p>
+                    <p class="res_page_market_name">${market_data[ "msg_data" ][ 1 ]}</p>
+                    <p class="bold">Market ID</p>
+                    <p class="market_id">${market_data[ "msg_data" ][ 2 ]}</p>
+                    <p class="bold">Your private key</p>
+                    <p class="oracles_privkey">${market_data[ "privkey" ]}</p>
+                    <p class="bold">Oracle ID</p>
+                    <p class="res_page_oracles_id">${market_data[ "msg_data" ][ 3 ]}</p>
+                    <p class="bold">Coordinator ID</p>
+                    <p class="res_page_coordinator">${market_data[ "msg_data" ][ 4 ]}</p>
+                    <p class="bold">Resolution blockheight</p>
+                    <p class="res_page_resolution_blockheight">${market_data[ "msg_data" ][ 5 ]}</p>
+                    <p class="bold">Shareable data</p>
+                    <p class="sharable_market_data">${btoa( JSON.stringify( market_data[ "msg_data" ] ) )}</p>
+                    <p class="bold">Resolution buttons</p>
+                    <p><button class="reveal_yes" data-yes_preimage="${market_data[ "yes_preimage" ]}">Reveal Yes</button> <button class="reveal_no" data-no_preimage="${market_data[ "no_preimage" ]}">Reveal No</button></p>
+                    <div class="resolution_div hidden"></div>
+                `;
+                showPage( 'resolution_page' );
+                $( '.reveal_yes' ).onclick = () => {
+                    $( '.resolution_div' ).classList.remove( "hidden" );
+                    $( '.resolution_div' ).innerHTML = `<p class="bold">Resolution preimage</p><p>${$( '.reveal_yes' ).getAttribute( "data-yes_preimage" )}</p>`;
+                    window.scrollTo({top: 999999999999999999});
+                }
+                $( '.reveal_no' ).onclick = () => {
+                    $( '.resolution_div' ).classList.remove( "hidden" );
+                    $( '.resolution_div' ).innerHTML = `<p class="bold">Resolution preimage</p><p>${$( '.reveal_no' ).getAttribute( "data-no_preimage" )}</p>`;
+                    window.scrollTo({top: 999999999999999999});
+                }
+            }
+            $( '.shareable_data_from_oracle' ).value = "";
+            $( '.submit_shareable_data' ).onclick = () => {
+                var shareable_data = $( '.shareable_data_from_oracle' ).value;
+                var market_data = JSON.parse( atob( shareable_data ) );
+                console.log( 'market_data:' );
+                console.log( market_data );
+                $( '.market_page_form' ).classList.add( "hidden" );
+                $( '.market_data' ).innerHTML = `
+                    <p class="bold">Market name</p>
+                    <p class="market_page_market_name">${market_data[ 1 ]}</p>
+                    <p class="bold">Market ID</p>
+                    <p class="market_id">${market_data[ 2 ]}</p>
+                    <p class="bold">Oracle ID</p>
+                    <p class="market_page_oracles_id">${market_data[ 3 ]}</p>
+                    <p class="bold">Coordinator ID</p>
+                    <p class="market_page_coordinator">${market_data[ 4 ]}</p>
+                    <p class="bold">Resolution blockheight</p>
+                    <p class="market_page_resolution_blockheight">${market_data[ 5 ]}</p>
+                    <p class="bold">Offers</p>
+                    <p class="market_page_offers"><span class="none_yet">[None yet]</span></p>
+                    <p><button class="visit_make_offer_page" data-shareable_data="${shareable_data}">Make offer</button></p>
+                `;
+                $( '.visit_make_offer_page' ).onclick = () => {
+                    window.scrollTo({top: 0});
+                    $( '.offer_details' ).innerHTML = `
+                        <p class="bold">Market name</p>
+                        <p class="market_page_market_name">${market_data[ 1 ]}</p>
+                        <p class="bold">Predict outcome</p>
+                        <p>Please select the outcome you think is most likely to occur</p>
+                        <form>
+                            <div>
+                                <label for="yes_radio">
+                                    <input type="radio" id="yes_radio" class="yes_radio" name="radio" value="yes">
+                                    Yes
+                                </label>
+                            </div>
+                            <div>
+                                <label for="no_radio">
+                                    <input type="radio" id="no_radio" class="no_radio" name="radio" value="no">
+                                    No
+                                </label>
+                            </div>
+                        </form>
+                        <p class="bold">Percentage</p>
+                        <p>Please enter the percentage chance you think you are right -- do not include the percent sign</p>
+                        <p><input class="percent_chance" type="number" min="1" max="100" step="1" value="70"></p>
+                        <p>Please enter the number of shares you want to create</p>
+                        <p><input class="num_of_shares_to_create" type="number" min="1" max="100000" step="1" value="1"></p>
+                        <p class="bold">Total cost</p>
+                        <p><span class="cost_to_create_shares">10000</span> sats</p>
+                    `;
+                    $( '.num_of_shares_to_create' ).onchange = () => {
+                        var num = Number( $( '.num_of_shares_to_create' ).value );
+                        $( '.cost_to_create_shares' ).innerText = num * 10000;
+                    }
+                    $( '.num_of_shares_to_create' ).onkeyup = e => {
+                        var num = Number( $( '.num_of_shares_to_create' ).value );
+                        $( '.cost_to_create_shares' ).innerText = num * 10000;
+                    }
+                    showPage( 'make_offer_page' );
+                }
+                var buyContract = async e => {
+                    var privkey = aggeus_market.getPrivkey();
+                    var users_pubkey = aggeus_market.getPubkey( privkey );
+                    var offer_id = e.target.getAttribute( "data-offer_id" );
+                    var offer = aggeus_market.users_state.offers_seen[ offer_id ];
+                    var shareable_data = offer.shareable_data;
+                    var market_data = JSON.parse( atob( shareable_data ) );
+                    var relays = market_data[ 8 ];
+                    var coordinators_pubkey = market_data[ 4 ];
+                    console.log( offer );
+
+                    //give the coordinator the user's pubkey and get two lightning
+                    //invoices from him -- one covers his mining fee and any
+                    //extra fee he might tack on, the other pays the cost of entering
+                    //this position
+                    var message_for_coordinator = JSON.stringify({
+                        msg_type: "buy_shares",
+                        msg_value: {
+                            share_ids: [offer_id],
+                            users_pubkey,
+                        },
+                    });
+                    console.log( 'share this with the coordinator:' );
+                    console.log( message_for_coordinator );
+                    var data_from_coordinator = JSON.parse( prompt( `send the message in your console to the coordinator and enter their response` ) );
+                    var { fee_invoice, pmt_invoice } = data_from_coordinator.msg_value;
+
+                    //prepare the smart contract
+                    //remember to swap the hashes compared to the original
+                    //because the buyer here is taking the other side
+                    if ( offer.prediction === "no" ) {
+                        var hash_to_use = market_data[ 6 ];
+                        var alt_hash = market_data[ 7 ];
+                    } else {
+                        var hash_to_use = market_data[ 7 ];
+                        var alt_hash = market_data[ 6 ];
+                    }
+
+                    //create the address encoding the second stage of the smart contract
+                    var pmt_invoice_pmthash = aggeus_market.getInvoicePmthash( pmt_invoice );
+                    var buyers_smart_contract_scripts = [
+                        [ "OP_SHA256", hash_to_use, "OP_EQUALVERIFY", "OP_SHA256", pmt_invoice_pmthash, "OP_EQUALVERIFY", users_pubkey, "OP_CHECKSIG" ],
+                        [ "OP_SHA256", alt_hash, "OP_EQUALVERIFY", coordinators_pubkey, "OP_CHECKSIG" ],
+                        //TODO: change the 10 to 144
+                        [ market_data[ 5 ] + 10, "OP_CHECKLOCKTIMEVERIFY", "OP_DROP", coordinators_pubkey, "OP_CHECKSIG" ],
+                        [ users_pubkey, "OP_CHECKSIGVERIFY", coordinators_pubkey, "OP_CHECKSIG" ],
+                    ];
+                    var [ buyers_smart_contract, buyers_smart_contract_tree, buyers_smart_contract_cblock ] = aggeus_market.getAddressData( buyers_smart_contract_scripts, 0 );
+
+                    //have the user pay the fee invoice first
+                    console.log( 'pay this fee invoice:' );
+                    console.log( fee_invoice );
+                    alert( 'pay the fee invoice in your browser console, then click ok' );
+
+                    //wait for the smart contract to be funded
+                    await nwcjs.waitSomeSeconds( 1 );
+                    alert( `click ok when 10k sats enters this smart contract and its funding tx confirms: ${buyers_smart_contract}` );
+
+                    //pay the payment invoice and get its preimage
+                    console.log( 'pay this payment invoice:' );
+                    console.log( pmt_invoice );
+                    var pmt_invoice_preimage = prompt( 'pay the payment invoice in your browser console, then enter its preimage' );
+                    //TODO: create your winning_tx and winning_sig, and send the winning_sig to the coordinator so that he can broadcast your winning_tx if you win -- but note that you cannot fully trust him to do this because he has an incentive to *not* broadcast it, namely: 144 blocks after the market resolves, he gets any uncollected money
+                    aggeus_market.users_state.users_shares[ offer_id ] = {...offer, privkey, pmt_invoice_preimage};
+
+                    //TODO: create a backup file for the user and prompt them to download it
+
+                    await nwcjs.waitSomeSeconds( 1 );
+                    alert( `congratulations, you are now a counterparty in this contract. It is now safe to go offline, but on resolution day, it is important to return if you won to collect your earnings (if any). If you don't, 144 blocks after the market resolves (or about 24 hours), the coordinator gets to keep any uncollected money. You may also go to the My Shares page to view the status of your contract or relist it for sale at a new price.` );
+                }
+                var listenFunction = async socket => {
+                    var subId = super_nostr.bytesToHex( crypto.getRandomValues( new Uint8Array( 8 ) ) );
+                    var filter  = {}
+                    filter.authors = [ market_data[ 4 ] ];
+                    filter.kinds = [ 46415 ];
+                    filter[ "#e" ] = [ market_data[ 2 ] ];
+                    var subscription = [ "REQ", subId, filter ];
+                    socket.send( JSON.stringify( subscription ) );
+                }
+                var handleFunction = async message => {
+                    var [ type, subId, event ] = JSON.parse( message.data );
+                    if ( !event || event === true ) return;
+
+                    //handle state updates concerning offers
+                    if ( event.pubkey !== market_data[ 4 ] ) {
+                        var share_id = event.tags[ 0 ][ 1 ];
+                        if ( JSON.parse( event.content )[ "status" ] === "for_sale" ) {
+                            $( `.market_page_offer[ data-offer_id="${share_id}" ]` ).classList.remove( "hidden" );
+                        } else {
+                            $( `.market_page_offer[ data-offer_id="${share_id}" ]` ).classList.add( "hidden" );
+                        }
+                        var some_events_are_visible = false;
+                        $$( '.market_page_offer' ).forEach( item => {
+                            if ( !item.classList.contains( "hidden" ) ) some_events_are_visible = true;
+                        });
+                        if ( !some_events_are_visible ) $( '.none_yet' ).classList.remove( "hidden" );
+                        else $( '.none_yet' ).classList.add( "hidden" );
+                        return;
+                    }
+
+                    //handle offer announcements
+                    var offer = JSON.parse( event.content );
+
+                    //display the offer
+                    aggeus_market.users_state.offers_seen[ offer.share_id ] = offer;
+                    var confidence_percentage = offer.confidence_percentage;
+                    var cost = ( 10_000 - ( confidence_percentage * 100 ) );
+                    var html = `
+                        <div class="market_page_offer hidden">
+                            <div class="offer_terms_label bold offer_label">Terms</div>
+                            <div class="offer_terms"><div>You predict ${offer.prediction === "yes" ? "No" : "Yes"}</div><div>Counterparty predicts ${offer.prediction === "yes" ? "Yes" : "No"}</div></div>
+                            <div class="offer_status_label bold offer_label">Status</div>
+                            <div class="offer_status">For sale</div>
+                            <div class="offer_deposit_label bold offer_label">Sats deposited</div>
+                            <div class="offer_deposit">10000 sats</div>
+                            <div class="offer_view_deposit_label bold offer_label">View on blockchain</div>
+                            <div class="offer_view_deposit"><a class="deposit_link" target="_blank">Click here</a></div>
+                            <div class="offer_cost_label bold offer_label">Cost</div>
+                            <div class="offer_cost">${cost} sats</div>
+                            <div class="offer_potential_label bold offer_label">Potential gain</div>
+                            <div class="offer_potential">${10_000 - cost} sats</div>
+                            <p><button class="buy_contract">Buy this contract</button></p>
+                        </div>
+                    `;
+                    var div = document.createElement( "div" );
+                    div.innerHTML = html;
+                    div = div.firstElementChild;
+                    div.setAttribute( "data-offer_id", offer.share_id );
+                    div.getElementsByClassName( "deposit_link" )[ 0 ].href = `https://mempool.space/tx/${offer.funding_outpoint}`;
+                    div.getElementsByClassName( "buy_contract" )[ 0 ].setAttribute( "data-offer_id", offer.share_id );
+                    div.getElementsByClassName( "buy_contract" )[ 0 ].onclick = buyContract;
+                    $( '.market_page_offers' ).append( div );
+
+                    //listen for state updates concerning this offer
+                    var state_updater_pubkey = offer.state_updater_pubkey;
+                    var subId = super_nostr.bytesToHex( crypto.getRandomValues( new Uint8Array( 8 ) ) );
+                    var filter  = {}
+                    filter.authors = [ state_updater_pubkey ];
+                    filter.kinds = [ 46415 ];
+                    filter[ "#e" ] = [ offer.share_id ];
+                    filter.limit = 1;
+                    var subscription = [ "REQ", subId, filter ];
+                    var socket_id = Object.keys( super_nostr.sockets )[ 0 ];
+                    var socket = super_nostr.sockets[ socket_id ].socket;
+                    socket.send( JSON.stringify( subscription ) );
+                }
+                var relays = market_data[ 8 ];
+                super_nostr.newPermanentConnection( relays[ 0 ], listenFunction, handleFunction );
+            }
+            $( '.submit_offer' ).onclick = async () => {
+                //prepare requisite variables
+                var shareable_data = $( '.shareable_data_from_oracle' ).value;
+                var market_data = JSON.parse( atob( shareable_data ) );
+                var privkey = aggeus_market.getPrivkey();
+                var market_makers_pubkey = aggeus_market.getPubkey( privkey );
+                //if I am 80% confident, the coordinator needs to contribute 2k sats
+                //if I am 20% confident, the coordinator needs to contribute 8k sats
+                //so this is the formula: ( 10_000 - ( confidence_percentage * 100 ) )
+                var num_of_shares_to_create = Number( $( '.num_of_shares_to_create' ).value );
+                var confidence_percentage = Number( $( '.percent_chance' ).value );
+                var amnt_needed_from_coordinator_per_share = ( 10_000 - ( confidence_percentage * 100 ) );
+                var total_amnt_needed_from_coordinator = amnt_needed_from_coordinator_per_share * num_of_shares_to_create;
+
+                //prepare the multisigs
+                var coordinators_pubkey = market_data[ 4 ];
+                var multisig_scripts = [
+                    [ market_makers_pubkey, "OP_CHECKSIGVERIFY", coordinators_pubkey, "OP_CHECKSIG", ],
+                    //TODO: change the 10 to 144
+                    [ market_data[ 5 ] + 10, "OP_CHECKLOCKTIMEVERIFY", "OP_DROP", market_makers_pubkey, "OP_CHECKSIG" ],
+                ];
+                var [ multisig_address, multisig_tree, multisig_cblock ] = aggeus_market.getAddressData( multisig_scripts, 1 );
+
+                //get a utxo to fund the multisigs
+                var addy = tapscript.Address.fromScriptPubKey( [ 1, market_makers_pubkey ], aggeus_market.network );
+                var total_cost = num_of_shares_to_create * 10000;
+                //TODO: get the actual feerate from the mempool
+                var txfee = 500;
+                console.log( `send ${total_cost + txfee} sats to this address:` );
+                console.log( addy );
+                var txid = prompt( `send ${total_cost + txfee} sats to the address in your console, then enter the txid of your transaction` );
+                var outn = Number( prompt( `and the vout` ) );
+                var amnt = Number( prompt( `and the amount` ) );
+
+                //prepare and sign the funding transaction and the to_midstate transactions
+                var vout = [];
+                var i; for ( i=0; i<num_of_shares_to_create; i++ ) {
+                    vout.push({
+                        value: 10_000,
+                        scriptPubKey: tapscript.Address.toScriptPubKey( multisig_address ),
+                    });
+                }
+                var funding_tx = tapscript.Tx.create({
+                    vin: [{
+                        txid,
+                        vout: outn,
+                        prevout: {
+                            value: amnt,
+                            scriptPubKey: tapscript.Address.toScriptPubKey( addy ),
+                        },
+                    }],
+                    vout,
+                });
+                var sig = tapscript.Signer.taproot.sign( privkey, funding_tx, 0 ).hex;
+                funding_tx.vin[ 0 ].witness = [ sig ];
+
+                //if the user thinks the market is 80% likely to resolve Yes, create a Yes share denominated at 10k sats and sell it for 2k sats -- i.e. 20% of 10k
+                if ( $( '.yes_radio' ).checked ) {
+                    var hash_to_use = market_data[ 6 ];
+                    var alt_hash = market_data[ 7 ];
+                } else {
+                    var hash_to_use = market_data[ 7 ];
+                    var alt_hash = market_data[ 6 ];
+                }
+
+                //create the address encoding the second stage of the smart contract
+                var second_stage_smart_contract_scripts = [
+                    [ "OP_SHA256", hash_to_use, "OP_EQUALVERIFY", market_makers_pubkey, "OP_CHECKSIG" ],
+                    [ "OP_SHA256", alt_hash, "OP_EQUALVERIFY", coordinators_pubkey, "OP_CHECKSIG" ],
+                ];
+                var [ second_stage_smart_contract, second_stage_smart_contract_tree, second_stage_smart_contract_cblock ] = aggeus_market.getAddressData( second_stage_smart_contract_scripts, 0 );
+
+                //prepare to_midstate_txs and cancel_txs
+                var funding_txid = tapscript.Tx.util.getTxid( funding_tx );
+                var to_midstate_sigs = [];
+                var cancel_txs = [];
+                funding_tx.vout.forEach( ( vout, index ) => {
+                    var to_midstate_tx = tapscript.Tx.create({
+                        vin: [{
+                            txid: funding_txid,
+                            vout: index,
+                            prevout: vout,
+                        }],
+                        vout: [{
+                            value: 10_000,
+                            scriptPubKey: tapscript.Address.toScriptPubKey( second_stage_smart_contract ),
+                        },{
+                            value: amnt_needed_from_coordinator_per_share,
+                            scriptPubKey: [ 1, market_makers_pubkey ],
+                        }],
+                    });
+                    var to_midstate_sig = tapscript.Signer.taproot.sign( privkey, to_midstate_tx, 0, {extension: multisig_tree[ 0 ], sigflag: 128 | 1} ).hex;
+                    to_midstate_sigs.push( to_midstate_sig );
+
+                    var cancel_tx = tapscript.Tx.create({
+                        vin: [{
+                            txid: funding_txid,
+                            vout: index,
+                            prevout: vout,
+                        }],
+                        vout: [{
+                            value: 10_000,
+                            scriptPubKey: [ 1, market_makers_pubkey ],
+                        },{
+                            value: 0,
+                            scriptPubKey: "51024e73",
+                        }],
+                        //TODO: change the 10 to 144
+                        locktime: market_data[ 5 ] + 10,
+                    });
+                    var cancel_sig = tapscript.Signer.taproot.sign( privkey, cancel_tx, 0, {extension: multisig_tree[ 1 ] }).hex;
+                    cancel_tx.vin[ 0 ].witness = [ cancel_sig, multisig_scripts[ 1 ], multisig_cblock ];
+                    cancel_txs.push( tapscript.Tx.encode( cancel_tx ).hex );
+                });
+
+                //tell the coordinator your confidence percentage and how many
+                //shares you intend to offer so that he can calculate how many
+                //sats he needs to contribute and decide if he wants to help
+                var message_for_coordinator = JSON.stringify({
+                    msg_type: "new_shares",
+                    msg_value: {
+                        confidence_percentage,
+                        num_of_shares_to_create,
+                        shareable_data,
+                        market_makers_utxo: {txid, vout: outn, amnt, addy},
+                        market_makers_pubkey,
+                        predicting_yes: $( '.yes_radio' ).checked,
+                        to_midstate_sigs,
+                        cancel_txs,
+                    },
+                });
+
+                //share your data with the coordinator
+                console.log( 'share this with the coordinator:' );
+                console.log( message_for_coordinator );
+                var data_from_coordinator = JSON.parse( prompt( `send the message in your console to the coordinator and enter their response` ) );
+                var { ln_invoice, share_id } = data_from_coordinator.msg_value;
+
+                //prompt the user to download a backup file containing the user's private key and cancel txs, that way they can unilaterally cancel their contracts, if necessary -- and note they are about to send those transactions to the coordinator so that he can broadcast them *for* the user, non-interactively, as an extra service -- but it's possible that some users may not trust him to do this
+                var backup_array = [];
+                var i; for ( i=0; i<num_of_shares_to_create; i++ ) {
+                    var new_share_id = ( BigInt( `0x${share_id}` ) + BigInt( i ) ).toString( 16 );
+                    var backup_obj = {
+                        version: 0,
+                        protocol: "aggeus_market",
+                        action: "new_shares",
+                        privkey,
+                        cancel_tx: cancel_txs[ i ],
+                        share_id: new_share_id,
+                        shareable_data,
+                    }
+                    backup_array.push( backup_obj );
+                }
+                var backup_file = btoa( JSON.stringify( backup_array ) );
+                console.log( `download this backup file:` );
+                console.log( backup_file );
+                console.log( 'also, broadcast this transaction:' );
+                console.log( tapscript.Tx.encode( funding_tx ).hex );
+                console.log( `also, pay this invoice:` );
+                console.log( ln_invoice );
+                alert( `save a copy of the backup file in your console, and broadcast the transaction there, and pay the ln invoice there; then click ok to continue` );
+                await nwcjs.waitSomeSeconds( 1 );
+                alert( `congratulations, your share is listed for sale. You may now go offline and come back later to see if anyone bought it. You can track your share's status on this page or go view your share on the public market` );
+            }
+            $( '.help_with_offer' ).onclick = async () => {
+                var data_from_user = JSON.parse( prompt( `enter the data from the user` ) );
+                var { msg_type, msg_value } = data_from_user;
+                if ( msg_type === "buy_shares" ) {
+                    var privkey = $( '.coordinators_privkey' ).innerText;
+                    var coordinators_pubkey = aggeus_market.getPubkey( privkey );
+                    var { users_pubkey, share_ids } = msg_value;
+                    if ( !share_ids.length ) return;
+                    var shareable_data = aggeus_market.coordinators_state.contracts[ share_ids[ 0 ] ].shareable_data;
+                    var predicting_yes = aggeus_market.coordinators_state.contracts[ share_ids[ 0 ] ].prediction === "yes";
+
+                    //ensure each share exists and is for sale
+                    //also, calculate the total cost
+                    var total_cost = 0;
+                    var total_mining_fees = 0;
+                    var all_is_well = true;
+                    //TODO: get the actual feerate from the mempool
+                    var txfee = 500;
+                    share_ids.every( share_id => {
+                        if ( !aggeus_market.coordinators_state.contracts.hasOwnProperty( share_id ) ) {
+                            all_is_well = false;
+                            return;
+                        }
+                        var offer = aggeus_market.coordinators_state.contracts[ share_id ];
+                        if ( !offer.sale_price ) {
+                            all_is_well = false;
+                            return;
+                        }
+                        total_cost = total_cost + offer.sale_price;
+                        total_mining_fees = total_mining_fees + txfee;
+                        offer.former_price = offer.sale_price;
+                        offer.status = "sale_pending";
+                        //I set a random value for the timer canceler and 5 minutes later
+                        //I check if it is the same as the one I set here. If the sale
+                        //goes through I set the timer canceler to null, so it won't be
+                        //the same. But if it *is* the same that means the sale did *not*
+                        //go through, so I restore the offer to its former state
+                        var timer_canceler = aggeus_market.getPrivkey();
+                        offer.timer_canceler = timer_canceler;
+                        //set a 5 minute timer; if the sale is not completed in that time,
+                        //restore the offer to its former state
+                        setTimeout( () => {
+                            var offer = JSON.parse( JSON.stringify( aggeus_market.coordinators_state.contracts[ share_id ] ) );
+                            if ( offer.timer_canceler !== timer_canceler ) return;
+                            offer.status = "for_sale";
+                            offer.sale_price = offer.former_price;
+                            offer.former_price = null;
+                            aggeus_market.coordinators_state.contracts[ share_id ] = offer;
+
+                            //update the offer's state on nostr
+                            var state_updater_privkey = offer.state_updater_privkey;
+                            setTimeout( async() => {
+                                var event = await super_nostr.prepEvent( state_updater_privkey, JSON.stringify({status: "for_sale"}), 46415, [ [ "e", share_id ] ] );
+                                var offer_market_data = JSON.parse( atob( offer.shareable_data ) );
+                                var offer_relays = offer_market_data[ 8 ];
+                                super_nostr.sendEvent( event, offer_relays[ 0 ] );
+                            }, 10 );
+                        }, 300_000 );
+                        return true;
+                    });
+
+                    //ensure every share is in the same market and makes the same prediction
+                    share_ids.every( share_id => {
+                        var offer = aggeus_market.coordinators_state.contracts[ share_id ];
+                        if ( offer.shareable_data !== shareable_data ) {
+                            all_is_well = false;
+                            return;
+                        }
+                        if ( offer.prediction === "yes" !== predicting_yes ) {
+                            all_is_well = false;
+                            return;
+                        }
+                    });
+
+                    //update the state of each offer on nostr
+                    var i; for ( i=0; i<share_ids.length; i++ ) {
+                        var share_id = share_ids[ i ];
+                        var offer = aggeus_market.coordinators_state.contracts[ share_id ];
+                        var offer_market_data = JSON.parse( atob( offer.shareable_data ) );
+                        var offer_relays = offer_market_data[ 8 ];
+                        var state_updater_privkey = offer.state_updater_privkey;
+                        var event = await super_nostr.prepEvent( state_updater_privkey, JSON.stringify({status: "sale_pending"}), 46415, [ [ "e", share_id ] ] );
+                        super_nostr.sendEvent( event, offer_relays[ 0 ] );
+                    }
+
+                    //TODO: instead of immediately returning, first restore all
+                    //offers to their former states -- and somehow stop the 5 minute
+                    //timer from earlier, otherwise it might restore the state *again*
+                    //if its state *legitimately* changes within the next 5 minutes
+                    if ( !all_is_well ) return;
+
+                    //get the fee invoice
+                    console.log( `getting fee invoice...` );
+                    var nwc_info = aggeus_market.coordinators_state.nwc_info;
+                    var amnt = total_mining_fees;
+                    var desc = "";
+                    var delay_tolerance = 6;
+                    var invoice_info = await nwcjs.makeInvoice( nwc_info, amnt, desc, delay_tolerance );
+                    var fee_invoice = "error: your nwc string did not work";
+                    try {
+                        fee_invoice = invoice_info.result.invoice;
+                    } catch ( e ) {}
+                    if ( fee_invoice.startsWith( "error" ) ) return alert( fee_invoice );
+
+                    //get the payment invoice
+                    console.log( `getting pmt invoice...` );
+                    var amnt = total_cost;
+                    var invoice_info = await nwcjs.makeInvoice( nwc_info, amnt, desc, delay_tolerance );
+                    var pmt_invoice = "error: your nwc string did not work";
+                    try {
+                        pmt_invoice = invoice_info.result.invoice;
+                    } catch ( e ) {}
+                    if ( pmt_invoice.startsWith( "error" ) ) return alert( pmt_invoice );
+
+                    //present the invoices to the user for payment
+                    var message_for_user = JSON.stringify({
+                        msg_type: "buy_shares_payment",
+                        msg_value: {fee_invoice, pmt_invoice},
+                    });
+                    console.log( 'share this with the user:' );
+                    console.log( message_for_user );
+                    alert( `send the message in your console to the user and click ok` );
+                    await nwcjs.waitSomeSeconds( 1 );
+                    alert( `click ok when fee invoice is paid` );
+
+                    //prepare the smart contracts
+                    //remember to swap the hashes compared to the original
+                    //because the buyer here is taking the other side
+                    var offer = aggeus_market.coordinators_state.contracts[ share_ids[ 0 ] ];
+                    var market_data = JSON.parse( atob( shareable_data ) );
+                    if ( offer.prediction === "no" ) {
+                        var hash_to_use = market_data[ 6 ];
+                        var alt_hash = market_data[ 7 ];
+                    } else {
+                        var hash_to_use = market_data[ 7 ];
+                        var alt_hash = market_data[ 6 ];
+                    }
+
+                    //create the address encoding the second stage of each smart contract
+                    var pmt_invoice_pmthash = aggeus_market.getInvoicePmthash( pmt_invoice );
+                    var buyers_smart_contract_scripts = [
+                        [ "OP_SHA256", hash_to_use, "OP_EQUALVERIFY", "OP_SHA256", pmt_invoice_pmthash, "OP_EQUALVERIFY", users_pubkey, "OP_CHECKSIG" ],
+                        [ "OP_SHA256", alt_hash, "OP_EQUALVERIFY", coordinators_pubkey, "OP_CHECKSIG" ],
+                        //TODO: change the 10 to 144
+                        [ market_data[ 5 ] + 10, "OP_CHECKLOCKTIMEVERIFY", "OP_DROP", coordinators_pubkey, "OP_CHECKSIG" ],
+                        [ users_pubkey, "OP_CHECKSIGVERIFY", coordinators_pubkey, "OP_CHECKSIG" ],
+                    ];
+                    var [ buyers_smart_contract, buyers_smart_contract_tree, buyers_smart_contract_cblock ] = aggeus_market.getAddressData( buyers_smart_contract_scripts, 0 );
+
+                    //fund the smart contracts
+                    console.log( `create a transaction with ${share_ids.length} ${share_ids.length === 1 ? "output" : "outputs"} -- each output should have a value of 10k sats locked to this address:` );
+                    console.log( buyers_smart_contract );
+                    alert( `follow the instructions in your console about funding the smart contract(s), then click ok` );
+                    await nwcjs.waitSomeSeconds( 1 );
+
+                    //wait for the payment invoice to be paid
+                    alert( `click ok when payment invoice is paid` );
+                    //TODO: handle the case where it does not get paid -- namely,
+                    //set up a reminder to recover your money from the new smart
+                    //contract the day after the market resolves
+                    offer.timer_canceler = null;
+                    offer.status = "proxied";
+                    offer.former_price = null;
+                    offer.sale_price = null;
+                    await nwcjs.waitSomeSeconds( 1 );
+
+                    //fulfill the psbts from each market maker and move their money into the second stage
+                    var txs_to_broadcast = [];
+                    var i; for ( i=0; i<share_ids.length; i++ ) {
+                        var share_id = share_ids[ i ];
+                        var offer = aggeus_market.coordinators_state.contracts[ share_id ];
+                        var to_midstate_tx = offer.to_midstate_tx;
+                        var to_midstate_sig = offer.to_midstate_sig;
+                        var market_makers_pubkey = offer.market_makers_pubkey;
+                        var shareable_data = offer.shareable_data;
+                        var market_data = JSON.parse( atob( shareable_data ) );
+
+                        //find or create a utxo worth 500 sats to use as an extra input
+                        var privkey = $( '.coordinators_privkey' ).innerText;
+                        var coordinators_pubkey = aggeus_market.getPubkey( privkey );
+                        var addy = tapscript.Address.fromScriptPubKey( [ 1, coordinators_pubkey ], aggeus_market.network );
+                        //TODO: get the actual feerate from the blockchain
+                        var txfee = 500 * 2; //on my testnet, this tx is big enough that a 500 sat fee is insufficient
+                        var amnt_to_send = Number( to_midstate_tx.vout[ 1 ].value ) + txfee;
+                        console.log( `send ${amnt_to_send} sats to this address:` );
+                        console.log( addy );
+                        var txid = prompt( `send ${amnt_to_send} sats to the address in your browser console and enter the txid of your transaction:` );
+                        var vout = Number( prompt( `and the vout` ) );
+                        var amnt = Number( prompt( `and the amount` ) );
+
+                        //add the utxo as an input to the to_midstate_tx
+                        to_midstate_tx.vin.push({
+                            txid,
+                            vout,
+                            prevout: {
+                                value: amnt,
+                                scriptPubKey: tapscript.Address.toScriptPubKey( addy ),
+                            },
+                        });
+                        var sig = tapscript.Signer.taproot.sign( privkey, to_midstate_tx, 1 );
+                        to_midstate_tx.vin[ 1 ].witness = [ sig ];
+
+                        //finish the first input
+                        var multisig_scripts = [
+                            [ market_makers_pubkey, "OP_CHECKSIGVERIFY", coordinators_pubkey, "OP_CHECKSIG", ],
+                            //TODO: change the 10 to 144
+                            [ market_data[ 5 ] + 10, "OP_CHECKLOCKTIMEVERIFY", "OP_DROP", market_makers_pubkey, "OP_CHECKSIG" ],
+                        ];
+                        var [ multisig_address, multisig_tree, multisig_cblock ] = aggeus_market.getAddressData( multisig_scripts, 0 );
+                        var coordinators_sig = tapscript.Signer.taproot.sign( privkey, to_midstate_tx, 0, {extension: multisig_tree[ 0 ]} );
+                        to_midstate_tx.vin[ 0 ].witness = [ coordinators_sig, to_midstate_sig, multisig_scripts[ 0 ], multisig_cblock ];
+                        txs_to_broadcast.push( tapscript.Tx.encode( to_midstate_tx ).hex );
+                    }
+
+                    //broadcast the to_midstate_txs
+                    console.log( 'broadcast these transactions (note that there may only be 1 of them):' );
+                    var i; for ( i=0; i<txs_to_broadcast.length; i++ ) console.log( txs_to_broadcast[ i ] );
+
+                    //update the state of each offer on nostr
+                    var i; for ( i=0; i<share_ids.length; i++ ) {
+                        var share_id = share_ids[ i ];
+                        var offer = aggeus_market.coordinators_state.contracts[ share_id ];
+                        var offer_market_data = JSON.parse( atob( offer.shareable_data ) );
+                        var offer_relays = offer_market_data[ 8 ];
+                        var state_updater_privkey = offer.state_updater_privkey;
+                        var event = await super_nostr.prepEvent( state_updater_privkey, JSON.stringify({status: "proxied"}), 46415, [ [ "e", share_id ] ] );
+                        super_nostr.sendEvent( event, offer_relays[ 0 ] );
+                    }
+                }
+                if ( msg_type === "new_shares" ) {
+                    var { confidence_percentage, num_of_shares_to_create, shareable_data, market_makers_utxo, market_makers_pubkey, predicting_yes, to_midstate_sigs, cancel_txs } = msg_value;
+                    if ( num_of_shares_to_create < 1 ) return;
+                    var market_data = JSON.parse( atob( shareable_data ) );
+                    var privkey = $( '.coordinators_privkey' ).innerText;
+                    var coordinators_pubkey = aggeus_market.getPubkey( privkey );
+                    var coordinators_addy = tapscript.Address.fromScriptPubKey( [ 1, coordinators_pubkey ], aggeus_market.network );
+                    if ( market_data[ 4 ] !== coordinators_pubkey ) return;
+
+                    //ensure the coordinator wants to participate in this contract
+                    var conf = confirm( `someone wants to create ${num_of_shares_to_create} ${num_of_shares_to_create > 1 ? "shares" : "share"} in the market "${market_data[ 1 ]}" which this oracle: ${market_data[ 3 ]} expects to resolve at this blockheight: ${market_data[ 5 ]}. Do you want to help?` );
+                    if ( !conf ) return;
+
+                    //find out how much money you need to contribute to each share
+                    var amnt_needed_from_coordinator_per_share = ( 10_000 - ( confidence_percentage * 100 ) );
+                    var total_amnt_needed_from_coordinator = amnt_needed_from_coordinator_per_share * num_of_shares_to_create;
+
+                    //prepare the multisigs
+                    var multisig_scripts = [
+                        [ market_makers_pubkey, "OP_CHECKSIGVERIFY", coordinators_pubkey, "OP_CHECKSIG", ],
+                        //TODO: change the 10 to 144
+                        [ market_data[ 5 ] + 10, "OP_CHECKLOCKTIMEVERIFY", "OP_DROP", market_makers_pubkey, "OP_CHECKSIG" ],
+                    ];
+                    var [ multisig_address, multisig_tree ] = aggeus_market.getAddressData( multisig_scripts, 0 );
+
+                    //prepare and sign the funding transaction
+                    var vout = [];
+                    var i; for ( i=0; i<num_of_shares_to_create; i++ ) {
+                        vout.push({
+                            value: 10_000,
+                            scriptPubKey: tapscript.Address.toScriptPubKey( multisig_address ),
+                        });
+                    }
+                    var funding_tx = tapscript.Tx.create({
+                        vin: [{
+                            txid: market_makers_utxo[ "txid" ],
+                            vout: market_makers_utxo[ "vout" ],
+                            prevout: {
+                                value: market_makers_utxo[ "amnt" ],
+                                scriptPubKey: tapscript.Address.toScriptPubKey( market_makers_utxo[ "addy" ] ),
+                            },
+                        }],
+                        vout,
+                    });
+
+                    //if the user thinks the market is 80% likely to resolve Yes, create a Yes share denominated at 10k sats and sell it for 2k sats -- i.e. 20% of 10k
+                    if ( predicting_yes ) {
+                        var hash_to_use = market_data[ 6 ];
+                        var alt_hash = market_data[ 7 ];
+                    } else {
+                        var hash_to_use = market_data[ 7 ];
+                        var alt_hash = market_data[ 6 ];
+                    }
+
+                    //create the address encoding the second stage of the smart contract
+                    var second_stage_smart_contract_scripts = [
+                        [ "OP_SHA256", hash_to_use, "OP_EQUALVERIFY", market_makers_pubkey, "OP_CHECKSIG" ],
+                        [ "OP_SHA256", alt_hash, "OP_EQUALVERIFY", coordinators_pubkey, "OP_CHECKSIG" ],
+                    ];
+                    var [ second_stage_smart_contract ] = aggeus_market.getAddressData( second_stage_smart_contract_scripts, 0 );
+
+                    //prepare to_midstate_txs
+                    var funding_txid = tapscript.Tx.util.getTxid( funding_tx );
+                    var to_midstate_txs = [];
+                    funding_tx.vout.forEach( ( vout, index ) => {
+                        var to_midstate_tx = tapscript.Tx.create({
+                            vin: [{
+                                txid: funding_txid,
+                                vout: index,
+                                prevout: vout,
+                            }],
+                            vout: [{
+                                value: 10_000,
+                                scriptPubKey: tapscript.Address.toScriptPubKey( second_stage_smart_contract ),
+                            },{
+                                value: amnt_needed_from_coordinator_per_share,
+                                scriptPubKey: [ 1, market_makers_pubkey ],
+                            }],
+                        });
+                        to_midstate_txs.push( to_midstate_tx );
+                    });
+
+                    //ensure the to_midstate_sigs are valid
+                    if ( to_midstate_sigs.length !== to_midstate_txs.length ) return;
+                    var i; for ( i=0; i<to_midstate_txs.length; i++ ) {
+                        var sig = to_midstate_sigs[ i ];
+                        var tx_to_sign = to_midstate_txs[ i ];
+                        var to_midstate_hash = tapscript.Signer.taproot.hash( tx_to_sign, 0, {extension: multisig_tree[ 0 ], sigflag: 128 | 1} ).hex;
+                        if ( sig.length !== 130 || !sig.endsWith( "81" ) ) return;
+                        var sig_without_flag = sig.substring( 0, 128 );
+                        var sig_is_valid = await nobleSecp256k1.schnorr.verify( sig_without_flag, to_midstate_hash, market_makers_pubkey );
+                        if ( !sig_is_valid ) return;
+                    }
+
+                    //estimate the cost of helping
+                    //TODO: get the actual feerate from the mempool
+                    var total_cost_of_helping = 0;
+                    var txfee = 500;
+                    var num_of_to_midstate_txs = to_midstate_txs.length;
+                    var cost_of_broadcasting_midstate_txs = txfee * num_of_to_midstate_txs;
+                    total_cost_of_helping = total_cost_of_helping + cost_of_broadcasting_midstate_txs;
+                    //TODO: make the coordinator fee a configurable parameter
+                    var coordinator_fee = 1_000;
+                    total_cost_of_helping = total_cost_of_helping + coordinator_fee;
+
+                    //create a lightning invoice for that amount and present it to the user for payment
+                    console.log( `getting ln invoice...` );
+                    var nwc_info = aggeus_market.coordinators_state.nwc_info;
+                    var amnt = total_cost_of_helping;
+                    var desc = "";
+                    var delay_tolerance = 6;
+                    var invoice_info = await nwcjs.makeInvoice( nwc_info, amnt, desc, delay_tolerance );
+                    var ln_invoice = "error: your nwc string did not work";
+                    try {
+                        ln_invoice = invoice_info.result.invoice;
+                    } catch ( e ) {}
+                    if ( ln_invoice.startsWith( "error" ) ) return alert( ln_invoice );
+                    var share_id = aggeus_market.getPrivkey();
+                    var message_for_market_maker = JSON.stringify({
+                        msg_type: "new_shares_payment",
+                        msg_value: {ln_invoice, share_id},
+                    });
+                    console.log( 'share this with the market maker:' );
+                    console.log( message_for_market_maker );
+                    alert( `send the message in your console to the market maker and click ok` );
+                    await nwcjs.waitSomeSeconds( 1 );
+                    alert( `click ok when the invoice is paid and when you've detected that this txid has confirmed: ${funding_txid}` );
+
+                    //list each share for sale
+                    var i; for ( i=0; i<num_of_shares_to_create; i++ ) {
+                        var new_share_id = ( BigInt( `0x${share_id}` ) + BigInt( i ) ).toString( 16 );
+                        if ( new_share_id.length % 2 ) new_share_id = "0" + new_share_id;
+                        var state_updater_privkey = aggeus_market.getPrivkey();
+                        var state_updater_pubkey = aggeus_market.getPubkey( state_updater_privkey );
+                        var share_data = {
+                            share_id: new_share_id,
+                            deposit: 10_000,
+                            shareable_data,
+                            prediction: predicting_yes ? "yes" : "no",
+                            confidence_percentage,
+                            funding_outpoint: `${funding_txid}:${i}`,
+                            state_updater_pubkey,
+                        }
+                        aggeus_market.coordinators_state.contracts[ new_share_id ] = {...share_data, sale_price: amnt_needed_from_coordinator_per_share, status: "for_sale", former_price: null, timer_canceler: null, to_midstate_tx: to_midstate_txs[ i ], to_midstate_sig: to_midstate_sigs[ i ], cancel_tx: cancel_txs[ i ], market_makers_pubkey, state_updater_privkey}
+                        var event = await super_nostr.prepEvent( privkey, JSON.stringify( share_data ), 46415, [ [ "e", new_share_id ], [ "e", market_data[ 2 ] ] ] );
+                        var offer_market_data = JSON.parse( atob( shareable_data ) );
+                        console.log( offer_market_data );
+                        var offer_relays = offer_market_data[ 8 ];
+                        super_nostr.sendEvent( event, offer_relays[ 0 ] );
+
+                        //update the offer's state on nostr
+                        var event = await super_nostr.prepEvent( state_updater_privkey, JSON.stringify({status: "for_sale"}), 46415, [ [ "e", new_share_id ] ] );
+                        super_nostr.sendEvent( event, offer_relays[ 0 ] );
+                    }
+                }
+            }
+            $( '.backup_file_form' ).value = "";
+            $( '.submit_nwc_string' ).onclick = () => {
+                var nwc_string = $( '.coordinators_nwc_string' ).value;
+                if ( !nwc_string.startsWith( "nostr+walletconnect://" ) ) return alert( `your nwc string is invalid, try again` );
+                var nwc_info = nwcjs.processNWCstring( nwc_string );
+                aggeus_market.coordinators_state.nwc_info = nwc_info;
+                $$( '.coordinators_details' ).forEach( item => item.classList.remove( "hidden" ) );
+                $( '.enter_nwc_string_label' ).classList.add( "hidden" );
+                $( '.coordinators_nwc_string' ).classList.add( "hidden" );
+                $( '.submit_nwc_string' ).classList.add( "hidden" );
+            }
+            $( '.view_your_shares' ).onclick = () => {
+                showPage( 'shares_page' );
+            }
+            //demo backup: W3sidmVyc2lvbiI6MCwicHJvdG9jb2wiOiJhZ2dldXNfbWFya2V0IiwiYWN0aW9uIjoibmV3X3NoYXJlcyIsInByaXZrZXkiOiI3NTgwOWYzNDYwNmZjYWQ0NDEzOTQwYjUwMjcyOWI2NTUwMWQzZTFkYzY4NWEwNzc5M2ZkMTI0MTQ2Y2MzYzBhIiwiY2FuY2VsX3R4IjoiMDIwMDAwMDAwMDAxMDEzOTY1MDk3YmNkM2Y5OTA3MjIzY2FjNmEzNDUzMWE4OGQzMWU0NzdhNGYzOGM5M2FhMGY1NGExYmYyYzcxZmExMDAwMDAwMDAwMGZkZmZmZmZmMDIxMDI3MDAwMDAwMDAwMDAwMjI1MTIwMzY3ZTdlOGMzOThiOWI0OGFjOTE3YTFkNDIzOWI0MzViMzNlYTExZTM2ZGQwMGM1MWNmNGUwMTE4Y2M3YWRiZjAwMDAwMDAwMDAwMDAwMDAwNDUxMDI0ZTczMDM0MGYwOWVjZjA1OTFhNDUzZWQzYzEzOTNlODBiY2U4YmVjMTlmOGE3YTAxZTY1MGU2NWFlNGZlNTAxNTY0YzVhMDNhODU0MGFjZjE2NTM0MWEwNjM3NDJlZmM5NjY2MzQwMmNhMzllNzc1ZTA5MWIzMzQ4MzBkZDQxZGQ5Y2JhZDFjMjYwMTE0YjE3NTIwMzY3ZTdlOGMzOThiOWI0OGFjOTE3YTFkNDIzOWI0MzViMzNlYTExZTM2ZGQwMGM1MWNmNGUwMTE4Y2M3YWRiZmFjNDFjMGFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE5ZDAyM2QzNmQ0MjQ0MGI4ZTliMjdhMzc3ODFlNTlkMWRlNjY4YWMzN2UyNDAyZWE2NjY5YzdlMzEwZjNkODM1MTQwMDAwMDAiLCJzaGFyZV9pZCI6IjUzZGFhNTZmOTU1Mzc4MTViMmU2MjA5NzQyYzU4ZTkzNmMyZDFlZWYzY2IzNDYwYjc1YWMxMThlNDY0Yzc4NDMiLCJzaGFyZWFibGVfZGF0YSI6Ild6QXNJbGRwYkd3Z1NTQm1iR2x3SUdobFlXUnpQeUlzSWpRMk1HWXlaakkwTldJME1UTTNaR016TkdWaVl6bGpaRGsxTkRJNFlXUXhOR0UzTTJGaE1HTXhaR1V3T0dSaU16WmtOakF3TURnMll6bG1ZVFU0TW1JaUxDSXlOamMwT0RjMU9XSXlPV0ZqTXpjMVkySXdabUUyTW1JeE56Tm1NemhpTkRnd01EUmpaREppTmprd1lqUmhOakkxTlRNeE5qQXlNelprTVdKbU5tRXpJaXdpWW1SaU5EVmxZMk13WXpsbU5HVXhZbVE0TVRFME1UYzFaalptTURSalpUYzBPVE14T1RjME5URTNORFpsTm1FeFpHUmlNV0kwWWpNeE16Y3dOamt3TWlJc01UQXNJakV3TVRnek1UYzVaVGd5WlRrNE1tWXdZV1UzWTJZMFl6TXdNekJqTmpBd01UazROak14WW1VeFpUQTJNV1kwTlRVM09UWXpPV0ZqWlRKalpXSXdaamtpTENJNVlXTmtPVEF5TVRRMVpEY3lOMlkyTW1FNFl6YzROMlEzTkRjMk9HSTBOak16TWpBellURTNabU5tT1RjNU5tWTJOVGN5TlRnd1pEVXdPVFZtTWpaaElpeGJJbmR6Y3pvdkwyNXZjM1J5TG1KcGRHTnZhVzVsY2k1emIyTnBZV3dpWFYwPSJ9XQ==
+            $( '.submit_backup_file' ).onclick = async () => {
+                $( '.submit_backup_file_form' ).classList.add( "hidden" );
+                $( '.loading_offers' ).classList.remove( "hidden" );
+                var backup_file = $( '.backup_file_form' ).value;
+                var backup_data = JSON.parse( atob( backup_file ) );
+
+                //prepare to get share data from nostr
+                var relays_to_query = {}
+                backup_data.forEach( item => {
+                    var shareable_data = item.shareable_data;
+                    var market_data = JSON.parse( atob( shareable_data ) );
+                    var relays = market_data[ 8 ];
+                    if ( !relays_to_query.hasOwnProperty( relays[ 0 ] ) ) relays_to_query[ relays[ 0 ] ] = {coordinators: [], share_ids: []}
+                    if ( !relays_to_query[ relays[ 0 ] ][ "coordinators" ].includes( market_data[ 4 ] ) ) relays_to_query[ relays[ 0 ] ][ "coordinators" ].push( market_data[ 4 ] );
+                    relays_to_query[ relays[ 0 ] ][ "share_ids" ].push( item.share_id );
+                });
+
+                //get data about each share from nostr
+                var events = [];
+                var i; for ( i=0; i<Object.keys( relays_to_query ).length; i++ ) {
+                    var relay_to_query = Object.keys( relays_to_query )[ i ];
+                    var data = relays_to_query[ relay_to_query ];
+                    var some_events = await super_nostr.getEvents( relay_to_query, null, data[ "coordinators" ], [ 46415 ], null, null, null, data[ "share_ids" ] );
+                    events = [ ...events, ...some_events ];
+                }
+
+                //combine data from nostr and data from backup file
+                var shares = [];
+                events.forEach( event => {
+                    var share = JSON.parse( event.content );
+                    backup_data.every( item => {
+                        if ( item.share_id !== share.share_id ) return true;
+                        shares.push({ ...item, ...share });
+                    });
+                });
+
+                //display shares
+                $( '.loading_offers' ).classList.add( "hidden" );
+                var i; for ( i=0; i<shares.length; i++ ) {
+                    var offer = shares[ i ];
+                    var role = offer.action === "new_shares" ? "Market maker" : "Buyer";
+                    if ( offer.action !== "new_shares" ) {
+                        var terms = `<div>You predict ${offer.prediction === "yes" ? "No" : "Yes"}</div><div>Counterparty predicts ${offer.prediction === "yes" ? "Yes" : "No"}</div>`;
+                    } else {
+                        var terms = `<div>You predict ${offer.prediction === "yes" ? "Yes" : "No"}</div><div>Counterparty predicts ${offer.prediction === "yes" ? "No" : "Yes"}</div>`;
+                    }
+                    var html = `
+                        <div class="shares_page_offer">
+                            <div class="offer_role_label bold offer_label">Role</div>
+                            <div class="offer_role">${role}</div>
+                            <div class="offer_terms_label bold offer_label">Terms</div>
+                            <div class="offer_terms">${terms}</div>
+                            <div class="offer_status_label bold offer_label">Status</div>
+                            <div class="offer_status">loading...</div>
+                            <div class="offer_deposit_label bold offer_label">Sats deposited</div>
+                            <div class="offer_deposit">10000 sats</div>
+                            <div class="offer_view_deposit_label bold offer_label">View on blockchain</div>
+                            <div class="offer_view_deposit"><a class="deposit_link" target="_blank">Click here</a></div>
+                            <div class="offer_earnings_label bold offer_label">Earnings so far</div>
+                            <div><span class="offer_earnings">0</span> sats</div>
+                            <p><button class="resolve_contract">Resolve contract</button></p>
+                        </div>
+                    `;
+                    var div = document.createElement( "div" );
+                    div.innerHTML = html;
+                    div = div.firstElementChild;
+                    div.setAttribute( "data-offer_id", offer.share_id );
+                    div.getElementsByClassName( "deposit_link" )[ 0 ].href = `https://mempool.space/tx/${offer.funding_outpoint}`;
+                    div.getElementsByClassName( "resolve_contract" )[ 0 ].onclick = async () => {
+                        //prepare requisite variables
+                        var shareable_data = offer.shareable_data;
+                        var market_data = JSON.parse( atob( shareable_data ) );
+                        var preimage = prompt( 'enter the resolution preimage' );
+                        var privkey = offer.privkey;
+                        var market_makers_pubkey = aggeus_market.getPubkey( privkey );
+                        var coordinators_pubkey = market_data[ 4 ];
+
+                        //create the address encoding the second stage of the smart contract
+                        if ( offer.prediction === "yes" ) {
+                            var hash_to_use = market_data[ 6 ];
+                            var alt_hash = market_data[ 7 ];
+                        } else {
+                            var hash_to_use = market_data[ 7 ];
+                            var alt_hash = market_data[ 6 ];
+                        }
+                        var second_stage_smart_contract_scripts = [
+                            [ "OP_SHA256", hash_to_use, "OP_EQUALVERIFY", market_makers_pubkey, "OP_CHECKSIG" ],
+                            [ "OP_SHA256", alt_hash, "OP_EQUALVERIFY", coordinators_pubkey, "OP_CHECKSIG" ],
+                        ];
+                        var [ second_stage_smart_contract, second_stage_smart_contract_tree, second_stage_smart_contract_cblock ] = aggeus_market.getAddressData( second_stage_smart_contract_scripts, 0 );
+                        var hash_of_preimage = await aggeus_market.sha256( aggeus_market.hexToBytes( preimage ) );
+                        if ( hash_of_preimage !== hash_to_use ) return alert( 'So sorry, you lost! Try again with another prediction' );
+
+                        //prepare and broadcast your winning transaction
+                        var to_midstate_txid = prompt( `enter the txid of whatever tx that sent 10k sats into this address: ${second_stage_smart_contract}` );
+                        var destino = prompt( `enter a bitcoin address where you want your money to go` );
+                        //TODO: get the actual feerate from the blockchain
+                        var txfee = 500;
+                        var winning_tx = tapscript.Tx.create({
+                            vin: [{
+                                txid: to_midstate_txid,
+                                vout: 0,
+                                prevout: {
+                                    value: 10_000,
+                                    scriptPubKey: tapscript.Address.toScriptPubKey( second_stage_smart_contract ),
+                                },
+                            }],
+                            vout: [{
+                                value: 10_000 - txfee,
+                                scriptPubKey: tapscript.Address.toScriptPubKey( destino ),
+                            }],
+                        });
+                        var winning_sig = tapscript.Signer.taproot.sign( privkey, winning_tx, 0, {extension: second_stage_smart_contract_tree[ 0 ] }).hex;
+                        winning_tx.vin[ 0 ].witness = [ winning_sig, preimage, second_stage_smart_contract_scripts[ 0 ], second_stage_smart_contract_cblock ];
+                        var txhex = tapscript.Tx.encode( winning_tx ).hex
+                        console.log( 'broadcast your winning transaction:' );
+                        console.log( txhex );
+                    }
+                    $( '.users_shares' ).append( div );
+                    setTimeout( async () => {
+                        var shareable_data = offer.shareable_data;
+                        var market_data = JSON.parse( atob( shareable_data ) );
+                        var relays = market_data[ 8 ];
+                        var status_events = await super_nostr.getEvents( relays[ 0 ], null, [ offer.state_updater_pubkey ], null, null, null, 1 );
+                        var status = JSON.parse( status_events[ 0 ].content )[ "status" ];
+                        var status_to_display = "Status unknown";
+                        if ( status === "for_sale" ) status_to_display = "Seeking counterparty";
+                        if ( status === "proxied" ) status_to_display = "Awaiting resolution";
+                        var earnings = 0;
+                        if ( status === "proxied" ) {
+                            var confidence_percentage = offer.confidence_percentage;
+                            var earnings = ( 10_000 - ( confidence_percentage * 100 ) );
+                            $( `.shares_page_offer[ data-offer_id="${offer.share_id}" ]` ).getElementsByClassName( "offer_earnings" )[ 0 ].innerText = earnings;
+                        }
+                        $( `.shares_page_offer[ data-offer_id="${offer.share_id}" ]` ).getElementsByClassName( "offer_status" )[ 0 ].innerText = status_to_display;
+                    }, 10 );
+                }
+            }
+        </script>
+    </body>
+</html>
