@@ -5,6 +5,9 @@ Bitcoin prediction markets with non-interactive contract trading
 
 Aggeus is an open protocol for building permissionless prediction markets on bitcoin. Combining ideas from DLCs, lightning, and PSBT auctions, Aggeus uses bitcoin as the only asset, does not require any other blockchains, authentication systems, or custodians (unless you count addresses encumbered by DLC-like constraints as semi-custodial), and allows anyone to create prediction markets and trade contracts in them pseudonymously.
 
+# Video demo
+[![](https://supertestnet.github.io/aggeus_market/aggeus-thumbnail.png)](https://www.youtube.com/watch?v=aRhYxDKdnms)
+
 # How does it work?
 
 There are three explainers:
